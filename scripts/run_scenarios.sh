@@ -74,11 +74,19 @@ fi
 CHECK_PID=""
 
 section "Scenario 5: invalid arguments (expect exit code 2)"
-for args in "127.0.0.1 0" "127.0.0.1 8000 -n 0" "127.0.0.1 abc" "127.0.0.1 8000 -o /tmp/does-not-exist/results.csv"; do
+for args in "127.0.0.1 0" "127.0.0.1 8000 -n 0" "127.0.0.1 8000 -t nan" "127.0.0.1 8000 -i inf" "127.0.0.1 abc" "127.0.0.1 8000 -o /tmp/does-not-exist/results.csv"; do
     # shellcheck disable=SC2086
     python3 tcp_check.py $args >/dev/null 2>&1
     echo "args='$args' exit_code=$?"
 done
+
+section "Scenario 6: unwritable output path (expect exit code 3)"
+READONLY_DIR="$(mktemp -d)"
+chmod 500 "$READONLY_DIR"
+python3 tcp_check.py "$HOST" "$PORT" -n 1 -i 0 -o "$READONLY_DIR/results.csv"
+echo "exit_code=$?"
+chmod 700 "$READONLY_DIR"
+rmdir "$READONLY_DIR"
 
 section "Generated CSV files"
 ls -1 "$OUT_DIR"/*.csv

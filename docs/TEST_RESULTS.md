@@ -16,6 +16,9 @@ Expected vs. observed evidence from an actual run.
 
 All commands below were executed from the project root.
 
+Connect times vary between runs and machines; the values below are from the
+recorded run on the date above.
+
 ## Summary
 
 | ID | Scenario | Expected | Observed | Status |
@@ -28,7 +31,8 @@ All commands below were executed from the project root.
 | TC-06 | Connect timeout (blackhole `192.0.2.1`) | `TIMEOUT`, exit `1` | 2/2 `TIMEOUT`, avg `N/A`, exit `1` | **PASS** |
 | TC-07 | Hostname resolution failure | `DNS_ERROR`, exit `1` | 2/2 `DNS_ERROR`, empty resolved address, exit `1` | **PASS** |
 | TC-08 | `Ctrl+C` during a run | Completed rows preserved, exit `130` | 1/5 rows saved, summary printed, exit `130` | **PASS** |
-| TC-09 | Automated test suite | All tests pass | 22 tests OK (timeout test enabled) | **PASS** |
+| TC-09 | Automated test suite | All tests pass | 27 tests OK (timeout test enabled) | **PASS** |
+| TC-10 | Unwritable CSV output | Clear error, exit `3`, no "saved" claim | Error printed, exit `3`, no `Results CSV:` line | **PASS** |
 
 ## Evidence
 
@@ -112,6 +116,8 @@ connect time, attempts 4–10 are `FAILURE` with an empty connect time.
 ```text
 args='127.0.0.1 0'                                  exit_code=2
 args='127.0.0.1 8000 -n 0'                          exit_code=2
+args='127.0.0.1 8000 -t nan'                        exit_code=2
+args='127.0.0.1 8000 -i inf'                        exit_code=2
 args='127.0.0.1 abc'                                exit_code=2
 args='127.0.0.1 8000 -o /tmp/does-not-exist/...'    exit_code=2
 ```
@@ -181,14 +187,27 @@ Also covered deterministically by the unit test
 ```text
 $ RUN_TIMEOUT_TEST=1 python3 -m unittest discover -s tests
 ----------------------------------------------------------------------
-Ran 22 tests in 0.571s
+Ran 27 tests in 2.584s
 
 OK
 ```
 
 Coverage includes successful TCP connects, refused ports, DNS failures, all
 error classifications, summary math including `N/A`, CSV mapping, exit codes
-`0/1/2/130`, and interrupted-run preservation.
+`0/1/2/3/130`, non-finite argument rejection, output-write failures, and
+interrupted-run preservation.
+
+### TC-10 — unwritable CSV output
+
+```text
+$ python3 tcp_check.py 127.0.0.1 8000 -n 1 -o /tmp/readonly/r.csv
+tcp_check.py: error: cannot write CSV '/tmp/readonly/r.csv': [Errno 13] Permission denied: '/tmp/readonly/r.csv'
+exit=3
+```
+
+No summary and no `Results CSV:` line are printed, so the tool never claims the
+file was saved. A simulated mid-run write failure (mocked `OSError`) is also
+covered and prints `CSV NOT SAVED (write failed)`.
 
 ## Not tested (explicitly)
 
@@ -213,7 +232,7 @@ error classifications, summary math including `N/A`, CSV mapping, exit codes
 | [`samples/sample_timeout.csv`](../samples/sample_timeout.csv) | TC-06 |
 | [`samples/sample_dns_error.csv`](../samples/sample_dns_error.csv) | TC-07 |
 
-Reproduce TC-01 through TC-05 with:
+Reproduce TC-01 through TC-06 and TC-10 with:
 
 ```bash
 ./scripts/run_scenarios.sh

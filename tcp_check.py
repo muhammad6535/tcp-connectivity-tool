@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import csv
 import errno
+import math
 import socket
 import statistics
 import sys
@@ -34,6 +35,7 @@ from pathlib import Path
 EXIT_OK = 0
 EXIT_FAILURES = 1
 EXIT_USAGE = 2
+EXIT_OUTPUT_ERROR = 3
 EXIT_INTERRUPTED = 130
 
 
@@ -188,6 +190,7 @@ def print_summary(
     requested_attempts: int,
     csv_path: Path,
     interrupted: bool,
+    csv_saved: bool,
 ) -> None:
     summary = build_summary(results)
 
@@ -219,7 +222,8 @@ def print_summary(
         for error_type, count in summary["error_counts"].most_common():
             print(f"  {error_type}: {count}")
 
-    print(f"Results CSV: {csv_path.resolve()}")
+    print(f"Results CSV: {csv_path.resolve()}" if csv_saved
+          else f"CSV NOT SAVED (write failed): {csv_path}")
 
 
 CSV_FIELDS = [
@@ -275,6 +279,8 @@ def non_negative_float(value: str) -> float:
         number = float(value)
     except ValueError:
         raise argparse.ArgumentTypeError(f"must be a number, got {value!r}")
+    if not math.isfinite(number):
+        raise argparse.ArgumentTypeError(f"must be a finite number, got {value!r}")
     if number < 0:
         raise argparse.ArgumentTypeError(f"must be >= 0, got {number}")
     return number
@@ -285,6 +291,8 @@ def positive_float(value: str) -> float:
         number = float(value)
     except ValueError:
         raise argparse.ArgumentTypeError(f"must be a number, got {value!r}")
+    if not math.isfinite(number):
+        raise argparse.ArgumentTypeError(f"must be a finite number, got {value!r}")
     if number <= 0:
         raise argparse.ArgumentTypeError(f"must be > 0, got {number}")
     return number
@@ -313,14 +321,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--timeout",
         type=positive_float,
         default=2.0,
-        help="TCP connect timeout in seconds, > 0 (default: 2.0)",
+        help="finite TCP connect timeout in seconds, > 0 (default: 2.0)",
     )
     parser.add_argument(
         "-i",
         "--interval",
         type=non_negative_float,
         default=1.0,
-        help="seconds to wait between attempts, >= 0 (default: 1.0)",
+        help="finite seconds to wait between attempts, >= 0 (default: 1.0)",
     )
     parser.add_argument(
         "-o",
@@ -336,11 +344,20 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
     args.host = args.host.strip()
     if not args.host:
         parser.error("host must not be empty")
+    if "\0" in args.output:
+        parser.error("output path must not contain a null byte")
 
-    csv_path = Path(args.output).expanduser()
-    if csv_path.exists() and csv_path.is_dir():
+    try:
+        csv_path = Path(args.output).expanduser()
+        path_exists = csv_path.exists()
+        is_directory = csv_path.is_dir()
+        parent_exists = csv_path.parent.exists()
+    except (OSError, ValueError) as exc:
+        parser.error(f"invalid output path {args.output!r}: {exc}")
+
+    if path_exists and is_directory:
         parser.error(f"output path is a directory: {csv_path}")
-    if not csv_path.parent.exists():
+    if not parent_exists:
         parser.error(f"output directory does not exist: {csv_path.parent}")
 
     return csv_path
@@ -353,41 +370,72 @@ def main(argv: list[str] | None = None) -> int:
 
     results: list[AttemptResult] = []
     interrupted = False
+    output_error = False
 
     try:
-        with csv_path.open("w", newline="", encoding="utf-8") as csv_file:
-            writer = csv.DictWriter(csv_file, fieldnames=CSV_FIELDS)
-            writer.writeheader()
-            csv_file.flush()
+        csv_file = csv_path.open("w", newline="", encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        print(
+            f"tcp_check.py: error: cannot write CSV '{csv_path}': {exc}",
+            file=sys.stderr,
+        )
+        return EXIT_OUTPUT_ERROR
 
-            for attempt in range(1, args.attempts + 1):
-                result = check_once(args.host, args.port, args.timeout, attempt)
-                results.append(result)
-                writer.writerow(result_to_row(result))
+    try:
+        with csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=CSV_FIELDS)
+            try:
+                writer.writeheader()
                 csv_file.flush()
 
-                if result.success:
-                    print(
-                        f"[{attempt}/{args.attempts}] SUCCESS "
-                        f"{result.connect_time_ms:.3f} ms "
-                        f"({result.resolved_address})"
-                    )
-                else:
-                    print(
-                        f"[{attempt}/{args.attempts}] FAILURE "
-                        f"{result.error_type}: {result.error_detail}"
-                    )
+                for attempt in range(1, args.attempts + 1):
+                    result = check_once(args.host, args.port, args.timeout, attempt)
+                    results.append(result)
+                    writer.writerow(result_to_row(result))
+                    csv_file.flush()
 
-                if attempt < args.attempts and args.interval > 0:
-                    time.sleep(args.interval)
+                    if result.success:
+                        print(
+                            f"[{attempt}/{args.attempts}] SUCCESS "
+                            f"{result.connect_time_ms:.3f} ms "
+                            f"({result.resolved_address})"
+                        )
+                    else:
+                        print(
+                            f"[{attempt}/{args.attempts}] FAILURE "
+                            f"{result.error_type}: {result.error_detail}"
+                        )
+
+                    if attempt < args.attempts and args.interval > 0:
+                        time.sleep(args.interval)
+            except OSError as exc:
+                output_error = True
+                print(
+                    f"tcp_check.py: error: failed to write CSV '{csv_path}': {exc}",
+                    file=sys.stderr,
+                )
     except KeyboardInterrupt:
         interrupted = True
         print("\nCtrl+C received - stopping after completed attempts.")
+    except OSError as exc:
+        output_error = True
+        print(
+            f"tcp_check.py: error: failed to write CSV '{csv_path}': {exc}",
+            file=sys.stderr,
+        )
     finally:
         print_summary(
-            results, args.host, args.port, args.attempts, csv_path, interrupted
+            results,
+            args.host,
+            args.port,
+            args.attempts,
+            csv_path,
+            interrupted,
+            csv_saved=not output_error,
         )
 
+    if output_error:
+        return EXIT_OUTPUT_ERROR
     if interrupted:
         return EXIT_INTERRUPTED
     return EXIT_FAILURES if any(not r.success for r in results) else EXIT_OK

@@ -239,6 +239,74 @@ class TestMain(unittest.TestCase):
                 tcp_check.main(["127.0.0.1", "8000", "-o", str(missing)])
         self.assertEqual(ctx.exception.code, 2)
 
+    def test_non_finite_timeout_exits_two(self) -> None:
+        for value in ("nan", "inf", "Infinity"):
+            with self.subTest(value=value), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as ctx:
+                    tcp_check.main(["127.0.0.1", "8000", "-t", value])
+                self.assertEqual(ctx.exception.code, 2)
+
+    def test_non_finite_interval_exits_two(self) -> None:
+        for value in ("nan", "inf", "Infinity"):
+            with self.subTest(value=value), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as ctx:
+                    tcp_check.main(["127.0.0.1", "8000", "-i", value])
+                self.assertEqual(ctx.exception.code, 2)
+
+    def test_null_byte_output_path_exits_two(self) -> None:
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                tcp_check.main(["127.0.0.1", "8000", "-o", "bad\0path.csv"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    @unittest.skipIf(os.geteuid() == 0, "root bypasses directory permissions")
+    def test_unwritable_output_dir_returns_output_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            readonly = Path(tmp) / "readonly"
+            readonly.mkdir()
+            readonly.chmod(0o500)
+            out = readonly / "results.csv"
+            try:
+                with redirect_stdout(io.StringIO()) as stdout, redirect_stderr(
+                    io.StringIO()
+                ) as stderr:
+                    code = tcp_check.main(
+                        ["127.0.0.1", "8000", "-n", "1", "-i", "0", "-o", str(out)]
+                    )
+            finally:
+                readonly.chmod(0o700)
+
+        self.assertEqual(code, tcp_check.EXIT_OUTPUT_ERROR)
+        self.assertIn("cannot write CSV", stderr.getvalue())
+        self.assertNotIn("Results CSV:", stdout.getvalue())
+
+    def test_write_failure_reports_not_saved(self) -> None:
+        with LocalListener() as listener, tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "results.csv"
+            with mock.patch.object(
+                csv.DictWriter, "writerow", side_effect=OSError("disk full")
+            ):
+                with redirect_stdout(io.StringIO()) as stdout, redirect_stderr(
+                    io.StringIO()
+                ) as stderr:
+                    code = tcp_check.main(
+                        [
+                            "127.0.0.1",
+                            str(listener.port),
+                            "-n",
+                            "1",
+                            "-i",
+                            "0",
+                            "-o",
+                            str(out),
+                        ]
+                    )
+
+        self.assertEqual(code, tcp_check.EXIT_OUTPUT_ERROR)
+        self.assertIn("failed to write CSV", stderr.getvalue())
+        self.assertIn("CSV NOT SAVED", stdout.getvalue())
+        self.assertNotIn("Results CSV:", stdout.getvalue())
+
     def test_ctrl_c_preserves_completed_rows(self) -> None:
         calls = {"count": 0}
 

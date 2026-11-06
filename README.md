@@ -21,6 +21,8 @@ exit codes — using only the Python standard library.
   `TIMEOUT`, `DNS_ERROR`, ...) so results can be asserted on in CI.
 - **Crash-safe evidence.** The CSV is flushed after every attempt, and `Ctrl+C`
   preserves completed results.
+- **Output-error safety.** An unwritable or failing CSV returns exit `3` and
+  never claims the file was saved.
 - **Automation contract.** Exit codes distinguish success, test failures, usage
   errors, and interruption.
 
@@ -33,9 +35,10 @@ exit codes — using only the Python standard library.
 - Handles refused connections, timeouts, DNS failures, and other socket errors
 - Summary: total, successes, failures, success rate, average/min/max successful
   connect time (`N/A` when nothing succeeded), and a failure breakdown
-- Argument validation with clear messages and exit code `2`
+- Argument validation (including non-finite numbers) with clear messages and
+  exit code `2`
 - Graceful `Ctrl+C` that keeps completed rows and exits `130`
-- 22 automated tests, no third-party packages
+- 27 automated tests, no third-party packages
 - GitHub Actions workflow (Python 3.10 and 3.12)
 
 ## Requirements
@@ -94,8 +97,8 @@ usage: tcp_check.py [-h] [-n ATTEMPTS] [-t TIMEOUT] [-i INTERVAL] [-o OUTPUT]
 | `host` | required | Hostname or IP address |
 | `port` | required | TCP port, `1`–`65535` |
 | `-n`, `--attempts` | `5` | Number of connection attempts, `>= 1` |
-| `-t`, `--timeout` | `2.0` | TCP connect timeout in seconds, `> 0` |
-| `-i`, `--interval` | `1.0` | Seconds between attempts, `>= 0` |
+| `-t`, `--timeout` | `2.0` | Finite TCP connect timeout in seconds, `> 0` |
+| `-i`, `--interval` | `1.0` | Finite seconds between attempts, `>= 0` |
 | `-o`, `--output` | `results.csv` | CSV output path (parent directory must exist) |
 
 More examples:
@@ -159,6 +162,7 @@ self-contained result artifact.
 | `0` | All completed attempts succeeded |
 | `1` | At least one attempt failed |
 | `2` | Invalid arguments / output path |
+| `3` | CSV could not be written (results not saved) |
 | `130` | Interrupted by `Ctrl+C` (completed rows preserved) |
 
 These make the tool usable in CI: a job fails when connectivity fails, while
@@ -178,8 +182,9 @@ Full expected-vs-observed evidence: [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.m
 | 6 | Blackhole address (`192.0.2.1`) | `TIMEOUT`, exit `1` | 2/2 `TIMEOUT`, exit `1` |
 | 7 | Invalid hostname | `DNS_ERROR`, exit `1` | 2/2 `DNS_ERROR`, exit `1` |
 | 8 | `Ctrl+C` during a run | Partial CSV, exit `130` | 1/5 rows saved, exit `130` |
+| 9 | Unwritable CSV path | Clear error, exit `3`, no false "saved" claim | Error printed, exit `3` |
 
-Reproduce scenarios 1–5 end to end:
+Reproduce scenarios 1–6 end to end:
 
 ```bash
 ./scripts/run_scenarios.sh          # writes the CSVs in samples/
@@ -219,8 +224,8 @@ sudo iptables -D INPUT -p tcp --dport 9000 -j DROP
 python3 -m unittest discover -s tests -v
 ```
 
-Result on this machine: **22 tests, all passing** (1 real-timeout test is
-opt-in). Enable it with:
+Result on this machine: **27 tests, all passing**. One real-timeout test is
+opt-in; enable it with:
 
 ```bash
 RUN_TIMEOUT_TEST=1 python3 -m unittest discover -s tests -v
@@ -228,7 +233,8 @@ RUN_TIMEOUT_TEST=1 python3 -m unittest discover -s tests -v
 
 The suite covers: real successful connects, refused ports, DNS failures, error
 classification, summary math (`N/A` included), CSV mapping, exit codes, invalid
-arguments, and `Ctrl+C` preservation (via a mocked interrupt).
+arguments (including `NaN`/`Infinity`), output-write failures, and `Ctrl+C`
+preservation (via a mocked interrupt).
 
 `pytest` is optional and also works if installed:
 
@@ -242,7 +248,7 @@ python3 -m pytest tests -v
 tcp-connectivity-tool/
 ├── tcp_check.py                 # CLI tool, stdlib only
 ├── tests/
-│   └── test_tcp_check.py        # 22 unittest tests
+│   └── test_tcp_check.py        # 27 unittest tests
 ├── scripts/
 │   ├── start_server.sh          # local TCP listener helper
 │   └── run_scenarios.sh         # reproduces scenarios 1-5

@@ -1,0 +1,3 @@
+attempt,timestamp_utc,target,resolved_address,result,connect_time_ms,error_type,error_detail
+1,2026-11-06T13:47:09.541Z,does-not-exist.invalid:80,,FAILURE,,DNS_ERROR,[Errno -2] Name or service not known (errno -2)
+2,2026-11-06T13:47:09.805Z,does-not-exist.invalid:80,,FAILURE,,DNS_ERROR,[Errno -2] Name or service not known (errno -2)

@@ -1,0 +1,3 @@
+attempt,timestamp_utc,target,resolved_address,result,connect_time_ms,error_type,error_detail
+1,2026-11-06T13:46:41.816Z,127.0.0.1:8999,127.0.0.1,FAILURE,,CONNECTION_REFUSED,[Errno 111] Connection refused
+2,2026-11-06T13:46:42.018Z,127.0.0.1:8999,127.0.0.1,FAILURE,,CONNECTION_REFUSED,[Errno 111] Connection refused

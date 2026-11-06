@@ -174,12 +174,17 @@ Full expected-vs-observed evidence: [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.m
 | 1 | Server running on `127.0.0.1:8000` | Success, exit `0` | 5/5 SUCCESS, avg 0.151 ms, exit `0` |
 | 2 | Server stopped | `CONNECTION_REFUSED`, exit `1` | 3/3 refused, avg `N/A`, exit `1` |
 | 3 | Unused port `8999` | `CONNECTION_REFUSED`, exit `1` | 2/2 refused, exit `1` |
-| 4 | Stop server during checks | Success → failure transition | 3 SUCCESS then 7 refused, exit `1` |
+| 4 | Stop server during checks | Success → failure transition, **completed** CSV, exit `1` | 3 SUCCESS then 7 refused, 10/10 rows, exit `1` |
 | 5 | Invalid arguments | Clear message, exit `2` | 4/4 cases exit `2` |
 | 6 | Blackhole address (`192.0.2.1`) | `TIMEOUT`, exit `1` | 2/2 `TIMEOUT`, exit `1` |
 | 7 | Invalid hostname | `DNS_ERROR`, exit `1` | 2/2 `DNS_ERROR`, exit `1` |
-| 8 | `Ctrl+C` during a run | Partial CSV, exit `130` | 1/5 rows saved, exit `130` |
+| 8 | `Ctrl+C` during a run | **Partial** CSV, exit `130` | 1/5 rows saved, exit `130` |
 | 9 | Unwritable CSV path | Clear error, exit `3`, no false "saved" claim | Error printed, exit `3` |
+
+> Stopping the server does **not** shorten the run: every attempt still executes,
+> so the CSV is complete and contains both successes and failures, and the exit
+> code is `1`. Only `Ctrl+C` stops early, which leaves a partial CSV and exits
+> `130`.
 
 Reproduce scenarios 1–6 end to end:
 

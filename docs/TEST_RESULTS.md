@@ -111,6 +111,10 @@ CSV: [`samples/sample_transition.csv`](../samples/sample_transition.csv)
 The CSV shows the transition without any gaps: attempts 1–3 are `SUCCESS` with a
 connect time, attempts 4–10 are `FAILURE` with an empty connect time.
 
+The run was **not** shortened — all 10 attempts completed, so the CSV is complete
+and exit code is `1`. Only `Ctrl+C` stops a run early (partial CSV, exit `130`;
+see TC-08).
+
 ### TC-05 — invalid arguments
 
 ```text
@@ -181,6 +185,9 @@ CSV rows (including header): 2
 Also covered deterministically by the unit test
 `test_ctrl_c_preserves_completed_rows` (mocked interrupt on attempt 2; asserts
 1 CSV row and exit `130`).
+
+This is the only scenario that produces a **partial** CSV. A server stopping
+mid-run does not stop the tool, so that case still writes every row.
 
 ### TC-09 — automated tests
 

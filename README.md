@@ -17,8 +17,9 @@ exit codes — using only the Python standard library.
   does **not** prove the HTTP application behind it is healthy.
 - **Stable error taxonomy.** Failures are classified (`CONNECTION_REFUSED`,
   `TIMEOUT`, `DNS_ERROR`, ...) so results can be asserted on in CI.
-- **Crash-safe evidence.** The CSV is flushed after every attempt, and `Ctrl+C`
-  preserves completed results.
+- **Interruption-safe evidence.** The CSV is flushed after every attempt, so
+  `Ctrl+C` preserves completed rows. `flush()` hands data to the OS; it is not a
+  power-loss or filesystem-crash durability guarantee.
 - **Output-error safety.** An unwritable or failing CSV returns exit `3` and
   never claims the file was saved.
 - **Automation contract.** Exit codes distinguish success, test failures, usage
@@ -104,7 +105,7 @@ More examples:
 # Failures on a stopped server (expect CONNECTION_REFUSED, not TIMEOUT)
 python3 tcp_check.py 127.0.0.1 8000 -n 3 -i 0.5 -o refused.csv
 
-# DNS failure (the .invalid TLD never resolves)
+# DNS failure (.invalid is reserved and should not resolve)
 python3 tcp_check.py does-not-exist.invalid 80 -n 2 -o dns.csv
 
 # Real connect timeout against a blackhole address
@@ -133,7 +134,7 @@ system resolver's own timeout, which this tool does not override.
 
 ## CSV schema
 
-One row per attempt, written and flushed immediately:
+One row per attempt, written and flushed to the OS immediately:
 
 | Column | Example | Meaning |
 |---|---|---|
@@ -176,7 +177,7 @@ Full expected-vs-observed evidence: [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.m
 | 3 | Unused port `8999` | `CONNECTION_REFUSED`, exit `1` | 2/2 refused, exit `1` |
 | 4 | Stop server during checks | Success → failure transition, **completed** CSV, exit `1` | 3 SUCCESS then 7 refused, 10/10 rows, exit `1` |
 | 5 | Invalid arguments | Clear message, exit `2` | 4/4 cases exit `2` |
-| 6 | Blackhole address (`192.0.2.1`) | `TIMEOUT`, exit `1` | 2/2 `TIMEOUT`, exit `1` |
+| 6 | Blackhole address (`192.0.2.1`) | `TIMEOUT` (environment-dependent), exit `1` | 2/2 `TIMEOUT`, exit `1` |
 | 7 | Invalid hostname | `DNS_ERROR`, exit `1` | 2/2 `DNS_ERROR`, exit `1` |
 | 8 | `Ctrl+C` during a run | **Partial** CSV, exit `130` | 1/5 rows saved, exit `130` |
 | 9 | Unwritable CSV path | Clear error, exit `3`, no false "saved" claim | Error printed, exit `3` |
@@ -186,6 +187,42 @@ Full expected-vs-observed evidence: [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.m
 > code is `1`. Only `Ctrl+C` stops early, which leaves a partial CSV and exits
 > `130`.
 
+### Demonstrate the two timings
+
+Stopping the server does **not** stop the tool, so the run completes and the CSV
+holds both successes and failures. Capture `$?` immediately:
+
+```bash
+python3 -m http.server 8000 --bind 127.0.0.1 &
+server_pid=$!
+
+python3 tcp_check.py 127.0.0.1 8000 -n 10 -i 1 -o transition.csv &
+tool_pid=$!
+
+sleep 3
+kill "$server_pid"
+wait "$tool_pid"
+result=$?
+echo "tool exit: $result"   # 1: at least one attempt failed
+wc -l transition.csv         # 11: header + all 10 attempts
+```
+
+`Ctrl+C` is different: it stops the loop early, so only completed attempts are
+in the CSV and the exit code is `130`. This reproducible form sends the same
+signal without depending on keypress timing:
+
+```bash
+timeout --preserve-status -s INT 2 \
+  python3 tcp_check.py 127.0.0.1 8000 -n 10 -i 5 -o partial.csv
+result=$?
+echo "tool exit: $result"   # 130
+wc -l partial.csv            # header + only the completed attempts
+```
+
+Run the `kill`/`timeout` variants in the same shell that started the job. A
+background job started by a non-interactive shell may inherit `SIGINT` as
+ignored, so `kill -INT <pid>` on such a job is not a reliable demo.
+
 Reproduce scenarios 1–6 end to end:
 
 ```bash
@@ -194,17 +231,23 @@ Reproduce scenarios 1–6 end to end:
 
 ### Connection refused vs timeout
 
-A **stopped local server usually produces `Connection refused`**, not a timeout:
-the kernel answers the SYN with a TCP RST because nothing is listening on the
-port. A **timeout** means no reply arrived at all — commonly a firewall dropping
-packets, a blackholed route, or a host that is down/unreachable.
+A **stopped local server normally produces `Connection refused`**, not a
+timeout: the kernel answers the SYN with a TCP RST because nothing is listening
+on the port. A **timeout** means no reply arrived at all — commonly a firewall
+dropping packets, a blackholed route, or a host that is down/unreachable.
+
+Neither result is guaranteed by the scenario alone. A firewall or intermediary
+can also **reject** traffic (producing refusal) or **drop** it (producing a
+timeout), so classify what you observe and write expectations accordingly.
 
 Do not confuse the two when writing test expectations.
 
 ### Testing timeouts without changing firewall rules
 
 This project uses `192.0.2.1` (`TEST-NET-1`, RFC 5737 — reserved for
-documentation, normally routed nowhere). It reliably produced `TIMEOUT` here:
+documentation and usually unrouted). The result is **environment-dependent**:
+routing and filtering on your network may differ. On this machine it produced
+`TIMEOUT`:
 
 ```bash
 python3 tcp_check.py 192.0.2.1 81 -n 2 -t 1 -o samples/sample_timeout.csv
@@ -269,7 +312,9 @@ tcp-connectivity-tool/
 
 ## Design notes
 
-- **Flush per row**: `Ctrl+C` or a crash cannot discard completed attempts.
+- **Flush per row**: data reaches the OS after every attempt, so a normal
+  `Ctrl+C` preserves completed rows. This is not a durability guarantee against
+  `kill -9` mid-write, power loss, or filesystem failure.
 - **Empty `connect_time_ms` on failure**: averages never get polluted by zeros.
 - **Iterate all resolved addresses**: tries each address returned by
   `getaddrinfo()` until one connects (IPv6 then IPv4, etc.).

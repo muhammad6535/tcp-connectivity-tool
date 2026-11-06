@@ -73,8 +73,9 @@ exit_code=1
 
 CSV: [`samples/sample_server_stopped.csv`](../samples/sample_server_stopped.csv)
 
-> Note: a stopped local server yields **connection refused**, not a timeout.
-> The kernel sends RST because nothing is listening on the port.
+> Note: a stopped local server normally yields **connection refused**, not a
+> timeout: the kernel sends RST because nothing is listening on the port. A
+> firewall or intermediary may instead reject or drop the traffic.
 
 ### TC-03 — unused port
 
@@ -134,8 +135,9 @@ tcp_check.py: error: argument port: port must be 1-65535, got 0
 
 ### TC-06 — timeout
 
-Target: `192.0.2.1:81` (`TEST-NET-1`, RFC 5737 — normally routed nowhere),
-`--timeout 1`.
+Target: `192.0.2.1:81` (`TEST-NET-1`, RFC 5737 — reserved for documentation and
+usually unrouted), `--timeout 1`. This test is **environment-dependent**: routing
+or filtering on another network may produce a different result.
 
 ```text
 [1/2] FAILURE TIMEOUT: timed out

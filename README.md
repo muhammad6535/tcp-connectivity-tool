@@ -1,7 +1,5 @@
 # TCP Connectivity Test Tool
 
-[![tests](https://github.com/muhammad6535/tcp-connectivity-tool/actions/workflows/tests.yml/badge.svg)](https://github.com/muhammad6535/tcp-connectivity-tool/actions/workflows/tests.yml)
-
 A small, dependency-free Python CLI that repeatedly tests TCP connectivity to a
 host and port, records every attempt to CSV, and prints a pass/fail summary with
 connect-time statistics.
@@ -39,7 +37,6 @@ exit codes — using only the Python standard library.
   exit code `2`
 - Graceful `Ctrl+C` that keeps completed rows and exits `130`
 - 27 automated tests, no third-party packages
-- GitHub Actions workflow (Python 3.10 and 3.12)
 
 ## Requirements
 
@@ -251,7 +248,7 @@ tcp-connectivity-tool/
 │   └── test_tcp_check.py        # 27 unittest tests
 ├── scripts/
 │   ├── start_server.sh          # local TCP listener helper
-│   └── run_scenarios.sh         # reproduces scenarios 1-5
+│   └── run_scenarios.sh         # reproduces scenarios 1-6
 ├── samples/
 │   ├── sample_success.csv
 │   ├── sample_server_stopped.csv
@@ -261,7 +258,6 @@ tcp-connectivity-tool/
 │   └── sample_dns_error.csv
 ├── docs/
 │   └── TEST_RESULTS.md          # expected vs observed evidence
-├── .github/workflows/tests.yml  # CI on Python 3.10 + 3.12
 ├── .gitignore
 └── LICENSE
 ```

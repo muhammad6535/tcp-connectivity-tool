@@ -218,7 +218,7 @@ covered and prints `CSV NOT SAVED (write failed)`.
 | Real WAN / high-latency links | Not available in this environment | Run against a remote host from another region |
 | Application-level health (HTTP 5xx) | Tool is intentionally L4-only | Add the HTTP exercise from the README |
 | Concurrent target fan-out | Tool is sequential by design | Add the `ThreadPoolExecutor` exercise |
-| Non-Linux platforms | Only Ubuntu was available | Run the CI matrix on macOS/Windows |
+| Non-Linux platforms | Only Ubuntu was available | Run the tests on macOS/Windows |
 | Sustained load / long soak | Out of scope for this tool | Extend attempts and monitor resource use |
 
 ## Artifacts
